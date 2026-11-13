@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { NUMBER_WORDS, say, sfx } from '@/audio'
 import { CheckButton, Keypad, NumberChoices } from '@/components/inputs'
 import { Arrangement, Art, NumberCard, ObjectGroup, Shape, TenFrame } from '@/components/visuals'
 import type { Problem } from '@/curriculum/types'
+import * as M from './more'
 
 export interface ActivityProps<P extends Problem = Problem> {
   p: P
@@ -28,9 +29,18 @@ export function Activity(props: ActivityProps) {
     case 'equation': return <EquationActivity {...(props as Of<'equation'>)} />
     case 'sequence': return <SequenceActivity {...(props as Of<'sequence'>)} />
     case 'shape': return <ShapeActivity {...(props as Of<'shape'>)} />
-    case 'pattern': return <PatternActivity {...(props as Of<'pattern'>)} />
+    case 'pattern': return <M.PatternActivity {...(props as Of<'pattern'>)} />
     case 'numberline': return <NumberLineActivity {...(props as Of<'numberline'>)} />
     case 'placevalue': return <PlaceValueActivity {...(props as Of<'placevalue'>)} />
+    case 'patternfix': return <M.PatternFixActivity {...(props as Of<'patternfix'>)} />
+    case 'patternpick': return <M.PatternPickActivity {...(props as Of<'patternpick'>)} />
+    case 'hide': return <M.HideActivity {...(props as Of<'hide'>)} />
+    case 'act': return <M.ActActivity {...(props as Of<'act'>)} />
+    case 'domino': return <M.DominoActivity {...(props as Of<'domino'>)} />
+    case 'truefalse': return <M.TrueFalseActivity {...(props as Of<'truefalse'>)} />
+    case 'matcheq': return <M.MatchEqActivity {...(props as Of<'matcheq'>)} />
+    case 'pairs': return <M.PairsActivity {...(props as Of<'pairs'>)} />
+    case 'chart': return <M.ChartActivity {...(props as Of<'chart'>)} />
   }
 }
 
@@ -234,9 +244,12 @@ function EquationActivity({ p, hint, reveal, locked, onAnswer }: Of<'equation'>)
     ) : (
       rep === 'concrete' ? <ObjectGroup slug={p.object} n={p.a} size={40} crossed={p.b} /> : <Frames n={p.a} crossed={p.b} />
     )
+  ) : p.blank === 'c' && p.b % 10 === 0 && p.a > 10 ? (
+    // Tens: show the rods so "ten more" is one more rod, "ten less" one rod taken away.
+    <TensVisual a={p.a} b={p.b} op={p.op} />
   ) : null
   const cell = (k: 'a' | 'b' | 'c', v: number) => <NumberCard value={k === p.blank && !reveal ? null : v} highlight={k === p.blank && reveal} size={p.c > 99 || p.a > 99 ? 'md' : 'lg'} />
-  const useKeypad = p.rep === 'abstract' || p.answer > 20
+  const useKeypad = p.rep === 'abstract' && p.style !== 'blocks'
   return (
     <Stage>
       {rep !== 'abstract' && visual}
@@ -288,6 +301,7 @@ function SequenceActivity({ p, hint, reveal, locked, onAnswer }: Of<'sequence'>)
     }
   }, [hint, p.numbers])
   const max = Math.max(...p.numbers.map((n) => n ?? 0), p.answer)
+  const st = Math.abs(p.step)
   return (
     <Stage>
       <div className="flex flex-wrap items-center justify-center gap-3">
@@ -295,7 +309,7 @@ function SequenceActivity({ p, hint, reveal, locked, onAnswer }: Of<'sequence'>)
       </div>
       {hint >= 2 && !reveal && (
         <div className="flex flex-wrap justify-center gap-1 text-xl font-bold text-text-2">
-          {Array.from({ length: max / p.step + 1 }, (_, i) => i * p.step).filter((x) => x > 0 && x <= max + p.step).map((x) => (
+          {Array.from({ length: Math.floor((max + st) / st) + 1 }, (_, i) => (p.answer % st) + i * st).filter((x) => x > 0 && x <= max + st).map((x) => (
             <span key={x} className={`rounded-lg px-2 ${p.numbers.includes(x) ? 'bg-surface-2 text-brand' : ''}`}>{x}</span>
           ))}
         </div>
@@ -321,26 +335,6 @@ function ShapeActivity({ p, hint, reveal, locked, onAnswer }: Of<'shape'>) {
           </button>
         ))}
       </div>
-    </Stage>
-  )
-}
-
-function PatternActivity({ p, hint, reveal, locked, onAnswer }: Of<'pattern'>) {
-  const unitLen = useMemo(() => {
-    for (let L = 1; L <= p.seq.length; L++) if (p.seq.every((x, i) => x === p.seq[i % L])) return L
-    return p.seq.length
-  }, [p.seq])
-  return (
-    <Stage>
-      <div className="flex flex-wrap items-center justify-center gap-1">
-        {p.seq.map((s, i) => (
-          <div key={i} className={`rounded-xl p-1 ${hint >= 2 && Math.floor(i / unitLen) % 2 === 0 ? 'bg-warm-soft' : ''}`}><Art slug={s} size={52} /></div>
-        ))}
-        <div className="grid h-16 w-16 place-items-center rounded-xl border-4 border-dashed border-brand bg-surface-2 text-4xl font-black text-brand">
-          {reveal ? <Art slug={p.answer} size={48} /> : '?'}
-        </div>
-      </div>
-      <NumberChoices choices={p.choices} answer={p.answer} reveal={reveal} disabled={locked} onPick={(c) => onAnswer(c === p.answer)} render={(c) => <Art slug={String(c)} size={60} />} />
     </Stage>
   )
 }
@@ -407,15 +401,34 @@ function NumberLineActivity({ p, hint, reveal, locked, onAnswer }: Of<'numberlin
 
 // ---- 7. Place value -----------------------------------------------------------
 
-function Rod({ label }: { label?: boolean }) {
+function Rod({ label, thin }: { label?: boolean; thin?: boolean }) {
   return (
     <div className="relative flex flex-col overflow-hidden rounded-md border-2 border-[#1d6fa5] bg-sky">
-      {Array.from({ length: 10 }, (_, i) => <div key={i} className="h-3.5 w-7 border-b border-[#1d6fa5]/60 last:border-0" />)}
+      {Array.from({ length: 10 }, (_, i) => <div key={i} className={`h-3.5 border-b border-[#1d6fa5]/60 last:border-0 ${thin ? 'w-4' : 'w-7'}`} />)}
       {label && <span className="absolute inset-x-0 top-1/2 -translate-y-1/2 text-center text-sm font-black text-white">10</span>}
     </div>
   )
 }
 const Cube = () => <div className="h-7 w-7 rounded-md border-2 border-[#c47800] bg-warm" />
+
+function TensVisual({ a, b, op }: { a: number; b: number; op: '+' | '-' }) {
+  const t = Math.floor(a / 10), o = a % 10, k = b / 10
+  // Up to 10 rods + ones must fit a phone: go thin when there are many.
+  const thin = t + (op === '+' ? k : 0) > 6
+  return (
+    <div className="flex min-h-40 max-w-full items-end gap-4 px-2">
+      <div className={`flex ${thin ? 'gap-1' : 'gap-1.5'}`}>
+        {Array.from({ length: t }, (_, i) => (
+          <div key={i} className={`relative ${op === '-' && i >= t - k ? 'opacity-35' : ''}`}>
+            <Rod thin={thin} />{op === '-' && i >= t - k && <span className="absolute inset-0 grid place-items-center text-4xl font-black text-pink">✕</span>}
+          </div>
+        ))}
+        {op === '+' && Array.from({ length: k }, (_, i) => <div key={`n${i}`} className="anim-pop rounded-md ring-4 ring-warm"><Rod thin={thin} /></div>)}
+      </div>
+      <div className="grid grid-cols-2 gap-1">{Array.from({ length: o }, (_, i) => <Cube key={i} />)}</div>
+    </div>
+  )
+}
 
 function Blocks({ tens, ones, labels }: { tens: number; ones: number; labels?: boolean }) {
   return (

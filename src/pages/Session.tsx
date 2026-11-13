@@ -10,6 +10,7 @@ import { db, getSettings } from '@/db'
 import { awardSticker, loadStates, minutesToday, recordAttempt } from '@/db/repo'
 import { repFor, type SkillState } from '@/engine/mastery'
 import { planSession, type Slot } from '@/engine/scheduler'
+import { topicById, topicSkills } from '@/curriculum/topics'
 import { useProfile, useProfileId } from '@/hooks'
 
 const MAX_TRIES = 3
@@ -19,17 +20,31 @@ interface Current { slot: Slot; problem: Problem; startedAt: number }
 interface Summary { firstTry: number; total: number; stars: number; stickers: string[]; mastered: string[]; unlocked: string[]; needBreak: boolean }
 
 function answerText(p: Problem): string {
-  if (p.kind === 'compare') return p.answer === 'same' ? 'They are the same!' : `This group has ${p.ask}.`
-  if (p.kind === 'shape') return `Here is the ${p.target}.`
-  if (p.kind === 'pattern') return 'This one comes next.'
-  return `It's ${p.answer}.`
+  const w = (op: '+' | '-') => (op === '+' ? 'plus' : 'take away')
+  switch (p.kind) {
+    case 'compare': return p.answer === 'same' ? 'They are the same!' : `This group has ${p.ask}.`
+    case 'shape': return `Here is the ${p.target}.`
+    case 'pattern': return p.answers.length > 1 ? 'These finish the pattern.' : 'This one fits the pattern.'
+    case 'patternfix': return "This one doesn't belong."
+    case 'patternpick': return p.ask === 'match' ? 'This row has the same pattern.' : 'This part repeats.'
+    case 'hide': return `${p.answer} ${p.answer === 1 ? 'is' : 'are'} hiding.`
+    case 'truefalse': return p.answer === 'yes' ? 'Yes, that is right!' : `No. ${p.a} ${w(p.op)} ${p.b} equals ${p.op === '+' ? p.a + p.b : p.a - p.b}.`
+    case 'matcheq': return `It's ${p.a} ${w(p.op)} ${p.b}.`
+    case 'pairs': return `Lots of pairs make ${p.target}!`
+    default: return `It's ${p.answer}.`
+  }
 }
+
+/** Format signature: regenerate when the next problem would look just like the last one. */
+const sig = (p: Problem) => `${p.kind}:${p.style ?? ''}`.replace(/-(art|color|shape|size|turn)$/, '')
 
 export default function Session() {
   const id = useProfileId()
   const profile = useProfile(id)
   const [params] = useSearchParams()
   const onlySkill = params.get('skill') ?? undefined
+  const topic = topicById(params.get('topic') ?? '')
+  const lastSig = useRef('')
   const nav = useNavigate()
 
   const [plan, setPlan] = useState<Slot[] | null>(null)
@@ -52,20 +67,25 @@ export default function Session() {
       if (!alive) return
       states.current = m
       unlockedBefore.current = new Set(SKILLS.filter((s) => s.prereqs.every((p) => m.get(p)?.mastered) || m.get(s.id)?.unlocked).map((s) => s.id))
-      setPlan(planSession(SKILLS, m, Date.now(), Math.random, onlySkill ? { onlySkill, length: 8 } : {}))
+      setPlan(planSession(SKILLS, m, Date.now(), Math.random,
+        onlySkill ? { onlySkill, length: 8 } : topic ? { topicSkills: topicSkills(topic, m) } : {}))
     })
     return () => { alive = false; stopSpeaking() }
-  }, [id, onlySkill, round])
+  }, [id, onlySkill, topic, round])
 
   const makeProblem = useCallback((slot: Slot): Problem => {
     const skill = skillById(slot.skillId)
     const st = states.current.get(slot.skillId)
     const stretch = slot.kind === 'stretch'
-    return skill.generate({
+    const gen = () => skill.generate({
       difficulty: stretch ? 0 : (st?.difficulty ?? 0),
       rep: stretch ? 'concrete' : repFor(st),
       rng: Math.random,
     })
+    let p = gen()
+    for (let i = 0; i < 6 && sig(p) === lastSig.current; i++) p = gen()
+    lastSig.current = sig(p)
+    return p
   }, [])
 
   // Show problem `index`.

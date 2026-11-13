@@ -5,6 +5,7 @@ import { Mascot, nextStageAt, petStage } from '@/components/Mascot'
 import { Art } from '@/components/visuals'
 import { GRADE_NAMES, GRADES_AVAILABLE, SKILLS } from '@/curriculum/skills'
 import { statusOf, type SkillStatus } from '@/engine/mastery'
+import { TOPICS } from '@/curriculum/topics'
 import { useProfile, useProfileId, useSkillStates } from '@/hooks'
 
 const STATUS_STYLE: Record<SkillStatus, string> = {
@@ -60,6 +61,22 @@ export default function Home() {
         </div>
       )}
 
+      {/* Practice one kind of maths at a time */}
+      {TOPICS.some((t) => t.grade === currentGrade) && (
+        <section className="flex flex-col gap-2">
+          <h2 className="text-xl font-black text-text-2">Practice</h2>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {TOPICS.filter((t) => t.grade === currentGrade).map((t) => (
+              <button key={t.id} type="button" onClick={() => { sfx('pop'); say(t.title); nav(`/p/${id}/play?topic=${t.id}`) }}
+                className="btn flex h-auto! items-center justify-start gap-2 px-3! py-2! text-lg!">
+                <Art slug={t.icon} size={40} /><span className="text-left leading-tight">{t.title}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <h2 className="text-xl font-black text-text-2">Skill path</h2>
       {/* The path: a winding trail of skills */}
       <div className="relative mx-auto flex w-full max-w-md flex-col gap-3">
         {skills.map((s, i) => {

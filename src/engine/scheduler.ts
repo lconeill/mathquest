@@ -45,10 +45,11 @@ export function planSession(
   states: Map<string, SkillState>,
   now: number,
   rng: Rng,
-  opts: { length?: number; onlySkill?: string } = {},
+  opts: { length?: number; onlySkill?: string; topicSkills?: string[] } = {},
 ): Slot[] {
   const length = opts.length ?? SESSION_LENGTH
   if (opts.onlySkill) return Array.from({ length }, () => ({ skillId: opts.onlySkill!, kind: 'focus' as const }))
+  if (opts.topicSkills?.length) return topicPlan(opts.topicSkills, states, length, rng)
 
   const focus = frontier(skills, states).slice(0, 2)
   const reviews = dueReviews(skills, states, now)
@@ -80,4 +81,24 @@ export function planSession(
   const first = reviewSlots[0] ?? focusSlots[0]
   const rest = reviewSlots[0] ? [focusSlots[0], ...middle] : middle
   return [first, ...rest, focusSlots[focusSlots.length - 1]].filter(Boolean).slice(0, length)
+}
+
+/**
+ * A topic session rotates through the topic's skills. Skills still being learnt
+ * get twice the turns of mastered ones; the same skill never comes twice in a row
+ * when there is a choice.
+ */
+export function topicPlan(ids: string[], states: Map<string, SkillState>, length: number, rng: Rng): Slot[] {
+  const bag: string[] = []
+  for (const id of ids) bag.push(id, ...(states.get(id)?.mastered ? [] : [id]))
+  const out: Slot[] = []
+  let pool: string[] = []
+  while (out.length < length) {
+    if (!pool.length) pool = shuffle(rng, bag)
+    const prev = out[out.length - 1]?.skillId
+    const k = pool.findIndex((id) => id !== prev)
+    const [id] = pool.splice(k < 0 ? 0 : k, 1)
+    out.push({ skillId: id, kind: 'focus' })
+  }
+  return out
 }

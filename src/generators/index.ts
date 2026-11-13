@@ -1,4 +1,4 @@
-import { COUNTABLES, nameFor, objectBySlug, type ArtSlug } from '@/art/objects'
+import { COUNTABLES, nameFor, objectBySlug } from '@/art/objects'
 import type { GenContext, Problem, ShapeName } from '@/curriculum/types'
 import { int, numberChoices, pick, shuffle, type Rng } from '@/lib/rng'
 
@@ -7,8 +7,8 @@ import { int, numberChoices, pick, shuffle, type Rng } from '@/lib/rng'
  * returns a fully-specified Problem whose `answer` is guaranteed correct.
  */
 
-const obj = (rng: Rng) => pick(rng, COUNTABLES)
-const lvl = <T,>(d: number, xs: readonly T[]): T => xs[Math.min(d, xs.length - 1)]
+export const obj = (rng: Rng) => pick(rng, COUNTABLES)
+export const lvl = <T,>(d: number, xs: readonly T[]): T => xs[Math.min(d, xs.length - 1)]
 
 export function count(ctx: GenContext, ranges: [number, number][]): Problem {
   const [lo, hi] = lvl(ctx.difficulty, ranges)
@@ -83,7 +83,7 @@ export function sequence(ctx: GenContext, kind: 'within20' | 'tens'): Problem {
     const hole = ctx.difficulty === 0 ? len - 1 : int(ctx.rng, 1, len - 1)
     const answer = nums[hole]
     return {
-      kind: 'sequence', rep: ctx.rep, step: 10, answer,
+      kind: 'sequence', style: 'count-tens', rep: ctx.rep, step: 10, answer,
       numbers: nums.map((n, i) => (i === hole ? null : n)),
       choices: shuffle(ctx.rng, [...new Set([answer, answer + 10 > 100 ? answer - 20 : answer + 10, answer - 10 < 10 ? answer + 20 : answer - 10, answer + 1])].slice(0, 3)),
       prompt: 'Count by tens! What number is missing?',
@@ -115,8 +115,8 @@ export function bond(ctx: GenContext, whole: 5 | 10): Problem {
   }
 }
 
-export function addSub(ctx: GenContext, op: '+' | '-', maxSum: number, opts: { missing?: boolean } = {}): Problem {
-  const o = obj(ctx.rng)
+/** Pick the numbers for an add/subtract problem: a + b = c, or a − b = c. */
+export function parts(ctx: GenContext, op: '+' | '-', maxSum: number): { a: number; b: number; c: number } {
   // Difficulty widens the range up to maxSum.
   const caps = maxSum <= 5 ? [3, 4, 5] : maxSum <= 10 ? [6, 8, 10] : [12, 15, 18, 20]
   const cap = Math.min(maxSum, lvl(ctx.difficulty, caps))
@@ -128,22 +128,43 @@ export function addSub(ctx: GenContext, op: '+' | '-', maxSum: number, opts: { m
     ? int(ctx.rng, maxSum > 10 ? Math.max(1, c0 - 9) : 0, c0)
     : int(ctx.rng, maxSum > 10 ? Math.max(1, c0 - 9) : 1, Math.max(1, c0 - 1))
   // For + : a + b = c ; for - : c - b = a  → reuse parts
-  let a: number, b: number, c: number
-  if (op === '+') { a = a0; b = c0 - a0; c = c0 } else { a = c0; b = c0 - a0; c = a0 }
+  return op === '+' ? { a: a0, b: c0 - a0, c: c0 } : { a: c0, b: c0 - a0, c: a0 }
+}
+
+const s = (n: number, one: string, many: string) => (n === 1 ? one : many)
+
+/** Little stories so word problems don't all sound the same. */
+export function story(rng: Rng, op: '+' | '-', a: number, b: number, o: { one: string; many: string }): string {
+  const A = `${a} ${a === 1 ? o.one : o.many}`
+  if (op === '+') {
+    return pick(rng, [
+      `${A} ${s(a, 'is', 'are')} playing. ${b} more ${s(b, 'comes', 'come')} to play. How many now?`,
+      `${A} in the basket. You put in ${b} more. How many altogether?`,
+      `You have ${A}. A friend gives you ${b} more. How many do you have?`,
+      `${A} at the party. ${b} more ${s(b, 'arrives', 'arrive')}. How many at the party?`,
+      `${A} and ${b} more. How many altogether?`,
+    ])
+  }
+  return pick(rng, [
+    `${A}. ${b} ${s(b, 'goes', 'go')} away. How many are left?`,
+    `There ${s(a, 'is', 'are')} ${A}. ${b} ${s(b, 'runs', 'run')} home. How many stay?`,
+    `You have ${A}. You give ${b} to a friend. How many do you have left?`,
+    `${A} on the hill. ${b} ${s(b, 'rolls', 'roll')} away. How many are still there?`,
+  ])
+}
+
+export function addSub(ctx: GenContext, op: '+' | '-', maxSum: number, opts: { missing?: boolean } = {}): Problem {
+  const o = obj(ctx.rng)
+  const { a, b, c } = parts(ctx, op, maxSum)
   const blank: 'a' | 'b' | 'c' = opts.missing ? (ctx.rng() < 0.5 ? 'b' : 'a') : 'c'
   const answer = blank === 'a' ? a : blank === 'b' ? b : c
   const word = op === '+' ? 'plus' : 'take away'
   const say = (x: number, k: 'a' | 'b' | 'c') => (k === blank ? 'what' : String(x))
-  let prompt: string
-  if (ctx.rep === 'concrete' && !opts.missing) {
-    prompt = op === '+'
-      ? `${a} ${nameFor(o, a)} and ${b} more. How many altogether?`
-      : `${a} ${nameFor(o, a)}. ${b} go away. How many are left?`
-  } else {
-    prompt = `${say(a, 'a')} ${word} ${say(b, 'b')} equals ${say(c, 'c')}?`
-  }
+  const isStory = ctx.rep === 'concrete' && !opts.missing
+  const prompt = isStory ? story(ctx.rng, op, a, b, o) : `${say(a, 'a')} ${word} ${say(b, 'b')} equals ${say(c, 'c')}?`
   return {
     kind: 'equation', rep: ctx.rep, a, op, b, c, blank, object: o.slug, answer, prompt,
+    style: opts.missing ? 'missing' : isStory ? 'story' : 'equation',
     choices: numberChoices(ctx.rng, answer, 4, 0, Math.max(maxSum, answer + 2)),
   }
 }
@@ -153,7 +174,7 @@ const SHAPES_BY_LEVEL: ShapeName[][] = [
   ['circle', 'square', 'triangle', 'rectangle', 'star'],
   ['circle', 'square', 'triangle', 'rectangle', 'star', 'heart', 'hexagon', 'oval'],
 ]
-const SHAPE_COLORS = ['#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#a855f7', '#ec4899']
+export const SHAPE_COLORS = ['#ef4444', '#f59e0b', '#22c55e', '#3b82f6', '#a855f7', '#ec4899']
 
 export function shape(ctx: GenContext): Problem {
   const pool = lvl(ctx.difficulty, SHAPES_BY_LEVEL)
@@ -163,25 +184,6 @@ export function shape(ctx: GenContext): Problem {
   // Same colour at level 0 would make it a colour game; vary colours from level 1.
   const options = shapes.map((s) => ({ shape: s, color: ctx.difficulty === 0 ? '#3b82f6' : pick(ctx.rng, SHAPE_COLORS) }))
   return { kind: 'shape', rep: ctx.rep, target: shapes[answer], options, answer, prompt: `Find the ${shapes[answer]}!` }
-}
-
-const PATTERN_ART: ArtSlug[] = ['apple', 'star', 'duck', 'flower', 'car', 'fish', 'balloon', 'cat', 'bee', 'cookie']
-
-export function pattern(ctx: GenContext): Problem {
-  const unitLen = lvl(ctx.difficulty, [2, 2, 3, 3])
-  const units = shuffle(ctx.rng, PATTERN_ART).slice(0, unitLen)
-  // Level 1+: AAB / ABB style; level 3: ABC with doubled parts.
-  let unit: ArtSlug[]
-  if (ctx.difficulty === 0) unit = [units[0], units[1]]
-  else if (ctx.difficulty === 1) unit = pick(ctx.rng, [[units[0], units[1]], [units[0], units[0], units[1]], [units[0], units[1], units[1]]])
-  else unit = units
-  const total = unit.length * 2 + int(ctx.rng, 1, unit.length) // show at least 2 repeats
-  const full = Array.from({ length: total + 1 }, (_, i) => unit[i % unit.length])
-  const answer = full[total]
-  const distract = shuffle(ctx.rng, PATTERN_ART.filter((x) => !unit.includes(x)))[0]
-  const choices = shuffle(ctx.rng, [...new Set([...unit, distract])]).slice(0, 3)
-  if (!choices.includes(answer)) choices[0] = answer
-  return { kind: 'pattern', rep: ctx.rep, seq: full.slice(0, total), choices: shuffle(ctx.rng, choices), answer, prompt: 'What comes next in the pattern?' }
 }
 
 export function numberLine(ctx: GenContext, op: '+' | '-', max = 20): Problem {
@@ -213,19 +215,6 @@ export function placeValue(ctx: GenContext): Problem {
   }
 }
 
-export function tensAddSub(ctx: GenContext): Problem {
-  const op = ctx.rng() < 0.5 ? '+' : '-'
-  const o = obj(ctx.rng)
-  const t1 = int(ctx.rng, 1, 8)
-  const t2 = int(ctx.rng, 1, 9 - t1)
-  const ones = ctx.difficulty >= 1 ? int(ctx.rng, 0, 9) : 0
-  let a: number, b: number, c: number
-  if (op === '+') { a = t1 * 10 + ones; b = t2 * 10; c = a + b } else { a = (t1 + t2) * 10 + ones; b = t2 * 10; c = a - b }
-  return {
-    kind: 'equation', rep: ctx.rep, a, op, b, c, blank: 'c', object: o.slug, answer: c,
-    choices: numberChoices(ctx.rng, c, 4, 0, 99),
-    prompt: `${a} ${op === '+' ? 'plus' : 'take away'} ${b} equals what?`,
-  }
-}
-
 export { objectBySlug }
+export * from './patterns'
+export * from './variety'

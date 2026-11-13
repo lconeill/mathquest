@@ -12,9 +12,9 @@ export function Art({ slug, size = 56, className = '', style }: { slug: string; 
  * and highlighting (hints).
  */
 export function ObjectGroup({
-  slug, n, size = 56, tapped, crossed = 0, highlight = false, onTap, label,
+  slug, n, size = 56, tapped, crossed = 0, crossedSet, highlight = false, onTap, label,
 }: {
-  slug: string; n: number; size?: number; tapped?: Set<number>; crossed?: number; highlight?: boolean
+  slug: string; n: number; size?: number; tapped?: Set<number>; crossed?: number; crossedSet?: Set<number>; highlight?: boolean
   onTap?: (i: number) => void; label?: (i: number) => ReactNode
 }) {
   const rows: number[][] = []
@@ -25,7 +25,7 @@ export function ObjectGroup({
         <div key={r} className="flex gap-2">
           {row.map((i) => {
             const isTapped = tapped?.has(i)
-            const isCrossed = i >= n - crossed
+            const isCrossed = i >= n - crossed || !!crossedSet?.has(i)
             return (
               <Cell
                 key={i}
